@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Set
 
 import chess
 import websockets
+from websockets.exceptions import ConnectionClosed
 from websockets.server import ServerConnection
 
 from capture import ScreenCapture
@@ -38,6 +39,7 @@ class AnalyzerServer:
         self._stable_fen: Optional[str] = None
         self._stable_count = 0
         self._observed_board_fen: Optional[str] = None
+        self._auto_analyze = True
         self._analyze_now = False
 
     @staticmethod
@@ -49,6 +51,8 @@ class AnalyzerServer:
             "is_flipped": False,
             "evaluation": {"type": "cp", "value": 0},
             "depth": 0,
+            "analysis_status": "idle",
+            "auto_analyze": True,
             "moves": {"best": None, "alt_1": None, "alt_2": None},
             "threats": [],
             "blunder_alert": {"is_blunder": False, "square": None},
@@ -66,6 +70,8 @@ class AnalyzerServer:
         try:
             async for message in ws:
                 await self._handle_command(message)
+        except ConnectionClosed:
+            pass
         finally:
             self.clients.discard(ws)
 
@@ -102,7 +108,26 @@ class AnalyzerServer:
                 self.payload["evaluation"] = {"type": "cp", "value": 0}
                 self.payload["blunder_alert"] = {"is_blunder": False, "square": None}
             elif action == "analyze":
-                self._analyze_now = True
+                if not self._analyze_now and not self._analyzing:
+                    self._analyze_now = True
+                    self.payload["analysis_status"] = "queued"
+            elif action == "set_auto_analyze":
+                self._auto_analyze = bool(cmd.get("value", True))
+                self.payload["auto_analyze"] = self._auto_analyze
+                if self._auto_analyze:
+                    self._analyze_now = True
+                    self.payload["analysis_status"] = "queued"
+            elif action == "set_turn":
+                turn = cmd.get("value")
+                if turn in ("w", "b"):
+                    self.active_turn = turn
+                    self.last_fen = None
+                    self._stable_fen = None
+                    self._stable_count = 0
+                    self._observed_board_fen = None
+                    self.payload["active_turn"] = turn
+                    self.payload["moves"] = {"best": None, "alt_1": None, "alt_2": None}
+                    self.payload["threats"] = []
             elif action == "set_monitor":
                 self.monitor = int(cmd.get("value", 1))
                 self.capture = ScreenCapture(self.monitor)
@@ -147,23 +172,21 @@ class AnalyzerServer:
                     board_fen = None
 
                 if board_fen is not None and board_fen != self._observed_board_fen:
-                    if self._observed_board_fen is not None:
-                        new_turn = "b" if self.active_turn == "w" else "w"
-                        parts = fen.split(" ")
-                        parts[1] = new_turn
-                        corrected_board = chess.Board(" ".join(parts))
-                        if not corrected_board.is_valid():
+                    if self.last_fen is not None:
+                        next_board = _board_after_legal_move(chess.Board(self.last_fen), board_fen)
+                        if next_board is None:
                             self._stable_fen = None
                             self._stable_count = 0
-                            await self._broadcast()
-                            continue
-                        self.active_turn = new_turn
-                        fen = corrected_board.fen()
-                    self._observed_board_fen = board_fen
-                    self._stable_fen = fen
-                    self._stable_count = 1
-                    self.payload["moves"] = {"best": None, "alt_1": None, "alt_2": None}
-                    self.payload["threats"] = []
+                            fen = None
+                        else:
+                            self.active_turn = "w" if next_board.turn == chess.WHITE else "b"
+                            fen = next_board.fen()
+                    if fen is not None:
+                        self._observed_board_fen = board_fen
+                        self._stable_fen = fen
+                        self._stable_count = 1
+                        self.payload["moves"] = {"best": None, "alt_1": None, "alt_2": None}
+                        self.payload["threats"] = []
                 elif fen == self._stable_fen:
                     self._stable_count += 1
                 else:
@@ -173,11 +196,12 @@ class AnalyzerServer:
                 if (
                     self._stable_count >= 2
                     and not self._analyzing
-                    and (fen != self.last_fen or self._analyze_now)
+                    and (self._analyze_now or (self._auto_analyze and fen != self.last_fen))
                 ):
                     print("Detected FEN:", fen)
                     self.last_fen = fen
                     self._analyze_now = False
+                    self.payload["analysis_status"] = "analyzing"
                     asyncio.create_task(self._analyze(chess.Board(fen)))
                     self.payload["active_turn"] = self.active_turn
             else:
@@ -201,6 +225,7 @@ class AnalyzerServer:
             print("analysis error:", e)
         finally:
             self._analyzing = False
+            self.payload["analysis_status"] = "idle"
 
     def _update_moves_and_eval(self, board: chess.Board, infos: list) -> None:
         moves: Dict[str, Optional[Dict[str, Any]]] = {}
@@ -260,6 +285,15 @@ class AnalyzerServer:
     async def _broadcast(self) -> None:
         if self.clients:
             websockets.broadcast(self.clients, json.dumps(self.payload))
+
+
+def _board_after_legal_move(board: chess.Board, board_fen: str) -> Optional[chess.Board]:
+    for move in board.legal_moves:
+        next_board = board.copy(stack=False)
+        next_board.push(move)
+        if next_board.board_fen() == board_fen:
+            return next_board
+    return None
 
 
 def _detect_move_square(old_fen: str, new_fen: str) -> Optional[str]:

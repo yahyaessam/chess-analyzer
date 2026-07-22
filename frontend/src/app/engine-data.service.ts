@@ -35,6 +35,8 @@ export interface ServerPayload {
   is_flipped: boolean;
   evaluation: EvalData;
   depth: number;
+  analysis_status: 'idle' | 'queued' | 'analyzing';
+  auto_analyze: boolean;
   moves: {
     best: MoveData | null;
     alt_1: MoveData | null;
@@ -52,6 +54,8 @@ export class EngineDataService {
   private readonly platformId = inject(PLATFORM_ID);
   private ws: WebSocket | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly manualAnalysisPending = signal(false);
+  private readonly manualAnalysisStarted = signal(false);
   private readonly pending: { action: string; value?: unknown }[] = [];
 
   readonly boardBounds = signal<Bounds>({ x: 0, y: 0, w: 0, h: 0 });
@@ -59,6 +63,8 @@ export class EngineDataService {
   readonly isFlipped = signal(false);
   readonly evaluation = signal<EvalData>({ type: 'cp', value: 0 });
   readonly depth = signal(0);
+  readonly analysisStatus = signal<ServerPayload['analysis_status']>('idle');
+  readonly autoAnalyze = signal(true);
   readonly moves = signal<ServerPayload['moves']>({ best: null, alt_1: null, alt_2: null });
   readonly threats = signal<ThreatData[]>([]);
   readonly blunderAlert = signal<ServerPayload['blunder_alert']>({ is_blunder: false, square: null });
@@ -72,6 +78,13 @@ export class EngineDataService {
   readonly evalText = computed(() => {
     const ev = this.evaluation();
     return ev.type === 'mate' ? `Mate ${ev.value}` : `${(ev.value / 100).toFixed(1)}`;
+  });
+
+  readonly isAnalyzing = computed(() => this.analysisStatus() !== 'idle' || this.manualAnalysisPending());
+
+  readonly analysisLabel = computed(() => {
+    const status = this.analysisStatus();
+    return status === 'queued' || this.manualAnalysisPending() ? 'Preparing position' : 'Analyzing position';
   });
 
   constructor() {
@@ -108,12 +121,31 @@ export class EngineDataService {
       this.isFlipped.set(payload.is_flipped);
       this.evaluation.set(payload.evaluation);
       this.depth.set(payload.depth ?? 0);
+      const analysisStatus = payload.analysis_status ?? 'idle';
+      this.analysisStatus.set(analysisStatus);
+      this.autoAnalyze.set(payload.auto_analyze ?? true);
+      if (analysisStatus !== 'idle') {
+        this.manualAnalysisPending.set(false);
+        this.manualAnalysisStarted.set(true);
+      } else if (this.manualAnalysisStarted()) {
+        this.manualAnalysisPending.set(false);
+        this.manualAnalysisStarted.set(false);
+      }
       this.moves.set(payload.moves);
       this.threats.set(payload.threats);
       this.blunderAlert.set(payload.blunder_alert);
     } catch (error) {
       console.error('Failed to parse payload', error);
     }
+  }
+
+  requestAnalysis(): void {
+    if (this.isAnalyzing()) {
+      return;
+    }
+    this.manualAnalysisPending.set(true);
+    this.analysisStatus.set('queued');
+    this.sendCommand('analyze');
   }
 
   sendCommand(action: string, value?: unknown): void {

@@ -18,6 +18,14 @@ import { getElectronIpc } from './electron-bridge';
       <span class="status-dot" [class.active]="data.activeTurn() === 'w'" [class.black]="data.activeTurn() === 'b'"></span>
       <span class="status-text">{{ data.activeTurn() === 'w' ? 'White to move' : 'Black to move' }}</span>
     </div>
+    <div class="turn-actions" role="group" aria-label="Side to move">
+      <button kendoButton [class.selected]="data.activeTurn() === 'w'" [attr.aria-pressed]="data.activeTurn() === 'w'" (click)="setTurn('w')">White turn</button>
+      <button kendoButton [class.selected]="data.activeTurn() === 'b'" [attr.aria-pressed]="data.activeTurn() === 'b'" (click)="setTurn('b')">Black turn</button>
+    </div>
+    <label>
+      <span>Auto analyze</span>
+      <kendo-switch [checked]="data.autoAnalyze()" (valueChange)="setAutoAnalyze($event)"></kendo-switch>
+    </label>
     <label>
       <span>Show best move</span>
       <kendo-switch [checked]="data.showBest()" (valueChange)="data.showBest.set($event)"></kendo-switch>
@@ -51,7 +59,15 @@ import { getElectronIpc } from './electron-bridge';
       <button kendoButton (click)="calibrate()">Calibrate</button>
       <button kendoButton (click)="captureTemplates()">Capture Templates</button>
       <button kendoButton (click)="toggleOverlay()">Hide/Show</button>
-      <button kendoButton (click)="analyzeNow()" class="analyze-now" themeColor="primary">Analyze now</button>
+      <button kendoButton (click)="analyzeNow()" class="analyze-now" themeColor="primary" [disabled]="data.isAnalyzing()">
+        {{ data.isAnalyzing() ? data.analysisLabel() : 'Analyze now' }}
+      </button>
+      @if (data.isAnalyzing()) {
+        <div class="analysis-status" role="status" aria-live="polite">
+          <span>{{ data.analysisLabel() }}</span>
+          <span class="analysis-progress" aria-hidden="true"><span></span></span>
+        </div>
+      }
     </div>
 
     <div class="legend">
@@ -74,8 +90,16 @@ export class ControlPanelComponent {
     this.data.sendCommand('capture_templates');
   }
 
+  setTurn(turn: 'w' | 'b'): void {
+    this.data.sendCommand('set_turn', turn);
+  }
+
+  setAutoAnalyze(value: boolean): void {
+    this.data.sendCommand('set_auto_analyze', value);
+  }
+
   analyzeNow(): void {
-    this.data.sendCommand('analyze');
+    this.data.requestAnalysis();
   }
 
   toggleOverlay(): void {
