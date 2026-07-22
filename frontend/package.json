@@ -1,0 +1,47 @@
+{
+  "name": "chess-analyzer-overlay",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist-electron/electron-main.js",
+  "scripts": {
+    "ng:build": "ng build --configuration production",
+    "el:build": "tsc -p tsconfig.electron.json",
+    "build": "npm run ng:build && npm run el:build",
+    "start": "npm run build && set ELECTRON_RUN_AS_NODE=&&electron .",
+    "electron": "set ELECTRON_RUN_AS_NODE=&&electron ."
+  },
+  "dependencies": {
+    "@angular/animations": "^22.0.0",
+    "@angular/common": "^22.0.0",
+    "@angular/compiler": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/forms": "^22.0.0",
+    "@angular/localize": "^22.0.0",
+    "@angular/platform-browser": "^22.0.0",
+    "@angular/platform-browser-dynamic": "^22.0.0",
+    "@progress/kendo-angular-buttons": "^24.2.0",
+    "@progress/kendo-angular-common": "^24.2.0",
+    "@progress/kendo-angular-dialog": "^24.2.0",
+    "@progress/kendo-angular-icons": "^24.2.0",
+    "@progress/kendo-angular-inputs": "^24.2.0",
+    "@progress/kendo-angular-intl": "^24.2.0",
+    "@progress/kendo-angular-l10n": "^24.2.0",
+    "@progress/kendo-angular-navigation": "^24.2.0",
+    "@progress/kendo-angular-popup": "^24.2.0",
+    "@progress/kendo-angular-utils": "^24.2.0",
+    "@progress/kendo-drawing": "^1.25.0",
+    "@progress/kendo-licensing": "^1.11.0",
+    "@progress/kendo-theme-default": "^10.0.0",
+    "rxjs": "^7.8.0",
+    "tslib": "^2.6.0",
+    "zone.js": "^0.15.0"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^22.0.0",
+    "@angular/cli": "^22.0.0",
+    "@angular/compiler-cli": "^22.0.0",
+    "@types/node": "^20.0.0",
+    "electron": "^31.0.0",
+    "typescript": "~6.0.0"
+  }
+}
